@@ -142,6 +142,10 @@ public:
             std::lock_guard<std::mutex>(m_state.message_mutex);
             initial_guess.block<3, 3>(0, 0) = (m_state.last_offset_r * m_state.last_r).cast<float>();
             initial_guess.block<3, 1>(0, 3) = (m_state.last_offset_r * m_state.last_t + m_state.last_offset_t).cast<float>();
+            // 如果没有接收到服务请求，使用FastLIO2的里程计数据
+            // std::lock_guard<std::mutex> message_lock(m_state.message_mutex);
+            // initial_guess.block<3, 3>(0, 0) = m_state.last_r.cast<float>(); // FastLIO2的旋转
+            // initial_guess.block<3, 1>(0, 3) = m_state.last_t.cast<float>(); // FastLIO2的平移
         }
 
         M3D current_local_r;
@@ -152,23 +156,24 @@ public:
             current_local_r = m_state.last_r;
             current_local_t = m_state.last_t;
             current_time = m_state.last_message_time;
-            m_localizer->setInput(m_state.last_cloud);
+            // m_localizer->setInput(m_state.last_cloud);
         }
 
-        bool result = m_localizer->align(initial_guess);
-        if (result)
+        // bool result = m_localizer->align(initial_guess);
+        
+        // if (true)
+        // {
+        M3D map_body_r = initial_guess.block<3, 3>(0, 0).cast<double>();
+        V3D map_body_t = initial_guess.block<3, 1>(0, 3).cast<double>();
+        m_state.last_offset_r = map_body_r * current_local_r.transpose();
+        m_state.last_offset_t = -map_body_r * current_local_r.transpose() * current_local_t + map_body_t;
+        if (!m_state.localize_success && m_state.service_received)
         {
-            M3D map_body_r = initial_guess.block<3, 3>(0, 0).cast<double>();
-            V3D map_body_t = initial_guess.block<3, 1>(0, 3).cast<double>();
-            m_state.last_offset_r = map_body_r * current_local_r.transpose();
-            m_state.last_offset_t = -map_body_r * current_local_r.transpose() * current_local_t + map_body_t;
-            if (!m_state.localize_success && m_state.service_received)
-            {
-                std::lock_guard<std::mutex>(m_state.service_mutex);
-                m_state.localize_success = true;
-                m_state.service_received = false;
-            }
+            std::lock_guard<std::mutex>(m_state.service_mutex);
+            m_state.localize_success = true;
+            m_state.service_received = false;
         }
+        // }
         sendBroadCastTF(current_time);
         publishMapCloud(current_time);
     }
